@@ -6,6 +6,15 @@
 
 ![](https://img.shields.io/docker/pulls/frankescobar/allure-docker-service)
 
+
+> [!IMPORTANT]
+> <div align="center">
+>
+> # <font color="red">ANNOUNCEMENT</font>
+> ## <font color="red">We are developing a new open-source version designed to resolve known issues and introduce significant enhancements related to UI, functionality, and data processing. While this transition will take time, we are prioritizing development to get a build ready for our testers as soon as possible.</font>
+>
+> </div>
+
 Table of contents
 =================
    * [FEATURES](#FEATURES)
