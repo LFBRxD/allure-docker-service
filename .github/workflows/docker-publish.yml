@@ -12,7 +12,7 @@ on:
 
 env:
   DOCKER_IMAGE: frankescobar/allure-docker-service
-  ALLURE_RELEASE: 2.35.1
+  ALLURE_RELEASE: 2.38.1
 
 jobs:
   build_release:

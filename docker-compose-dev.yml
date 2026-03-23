@@ -9,8 +9,8 @@ services:
       context: ../allure-docker-service
       dockerfile: docker/Dockerfile
       args:
-        ALLURE_RELEASE: 2.35.1
-        BUILD_VERSION: 2.35.1
+        ALLURE_RELEASE: 2.38.1
+        BUILD_VERSION: 2.38.1
         JDK: eclipse-temurin:11-jre-noble
     environment:
       DEV_MODE: 0
