@@ -22,6 +22,9 @@ LAST_REPORT_DIRECTORY=$(basename -- "$LAST_REPORT_PATH_DIRECTORY")
 #echo "LAST REPORT DIRECTORY >> $LAST_REPORT_DIRECTORY"
 
 RESULTS_DIRECTORY=$STATIC_CONTENT_PROJECTS/$PROJECT_ID/results
+PROJECT_ROOT=$STATIC_CONTENT_PROJECTS/$PROJECT_ID
+ALLURE_CONFIG_FILE=$PROJECT_ROOT/allurerc.json
+ALLURE3_HISTORY_FILE=$PROJECT_ROOT/history.jsonl
 if [ ! -d "$RESULTS_DIRECTORY" ]; then
     echo "Creating results directory for PROJECT_ID: $PROJECT_ID"
     mkdir -p $RESULTS_DIRECTORY
@@ -56,17 +59,45 @@ EOF
     if [[ "$EXEC_STORE_RESULTS_PROCESS" == "1" ]]; then
         echo $EXECUTOR_JSON > $EXECUTOR_PATH
     else
-        echo '' > $EXECUTOR_PATH
+        # Allure 3 parses every *.json under results; an empty file breaks generate.
+        rm -f "$EXECUTOR_PATH"
     fi
 else
-    echo '' > $EXECUTOR_PATH
+    rm -f "$EXECUTOR_PATH"
 fi
 
 echo "Generating report for PROJECT_ID: $PROJECT_ID"
-allure generate --clean $RESULTS_DIRECTORY -o $STATIC_CONTENT_PROJECTS/$PROJECT_ID/reports/latest
+REPORT_OUTPUT=$STATIC_CONTENT_PROJECTS/$PROJECT_ID/reports/latest
+rm -rf "$REPORT_OUTPUT"
+mkdir -p "$REPORT_OUTPUT"
+# Allure 3: results path must be the real directory (symlink .../results -> /app/allure-results).
+RESULTS_REAL=$(cd "$RESULTS_DIRECTORY" && pwd -P)
+# Allure Report 3: persist trends in a JSONL per project.
+cat > "$ALLURE_CONFIG_FILE" <<EOF
+{
+  "historyPath": "$ALLURE3_HISTORY_FILE"
+}
+EOF
+# Default: Allure Awesome single HTML (Allure Report 3). Set ALLURE_REPORT_ENGINE=generate for classic multi-file tree.
+ALLURE_REPORT_ENGINE="${ALLURE_REPORT_ENGINE:-awesome}"
+if [ "$ALLURE_REPORT_ENGINE" = "generate" ]; then
+    (
+      cd "$PROJECT_ROOT" || exit 1
+      allure generate "$RESULTS_REAL" --output "$REPORT_OUTPUT"
+    )
+else
+    (
+      cd "$PROJECT_ROOT" || exit 1
+      allure awesome "$RESULTS_REAL" --output "$REPORT_OUTPUT" --single-file
+    )
+fi
 if [ "$OPTIMIZE_STORAGE" == "1" ] ; then
-    ln -sf $ALLURE_RESOURCES/app.js $STATIC_CONTENT_PROJECTS/$PROJECT_ID/reports/latest/app.js
-    ln -sf $ALLURE_RESOURCES/styles.css $STATIC_CONTENT_PROJECTS/$PROJECT_ID/reports/latest/styles.css
+    if [ -f "$ALLURE_RESOURCES/app.js" ]; then
+        ln -sf "$ALLURE_RESOURCES/app.js" "$REPORT_OUTPUT/app.js"
+    fi
+    if [ -f "$ALLURE_RESOURCES/styles.css" ]; then
+        ln -sf "$ALLURE_RESOURCES/styles.css" "$REPORT_OUTPUT/styles.css"
+    fi
 fi
 
 if [ "$KEEP_HISTORY" == "TRUE" ] || [ "$KEEP_HISTORY" == "true" ] || [ "$KEEP_HISTORY" == "1" ] ; then

@@ -11,8 +11,8 @@ on:
   pull_request:
 
 env:
-  DOCKER_IMAGE: frankescobar/allure-docker-service
-  ALLURE_RELEASE: 2.38.1
+  DOCKER_IMAGE: flaviordesouza/allure-docker-service
+  ALLURE_NPM_VERSION: 3.3.1
 
 jobs:
   build_release:
@@ -24,17 +24,14 @@ jobs:
         - ARCH: amd64
           DOCKER_FILE: Dockerfile
           DOCKER_PLATFORM: linux/amd64
-          JDK: eclipse-temurin:11-jre-noble
 
         - ARCH: arm64
           DOCKER_FILE: Dockerfile
           DOCKER_PLATFORM: linux/arm64
-          JDK: eclipse-temurin:11-jre-noble
 
         - ARCH: armv7
           DOCKER_FILE: Dockerfile
           DOCKER_PLATFORM: linux/arm/v7
-          JDK: eclipse-temurin:11-jre-noble
 
     if: github.event_name == 'push'
     outputs:
@@ -47,8 +44,7 @@ jobs:
         id: prepare
         run: |
           echo "DOCKER BUILD: Build Docker image."
-          echo "DOCKER BUILD: jdk -> ${{matrix.JDK}}."
-          echo "DOCKER BUILD: allure version -> ${ALLURE_RELEASE}."
+          echo "DOCKER BUILD: allure (npm) version -> ${ALLURE_NPM_VERSION}."
           echo "DOCKER BUILD: docker file - ${{matrix.DOCKER_FILE}}."       
 
           VERSION=na
@@ -64,11 +60,10 @@ jobs:
           fi
 
           DOCKER_ARGS_STRING="\
-            --build-arg JDK=${{matrix.JDK}} \
             --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
             --build-arg BUILD_VERSION=${VERSION} \
             --build-arg BUILD_REF=${GITHUB_SHA::8} \
-            --build-arg ALLURE_RELEASE=${ALLURE_RELEASE} \
+            --build-arg ALLURE_NPM_VERSION=${ALLURE_NPM_VERSION} \
             --platform ${{matrix.DOCKER_PLATFORM}} \
             ${TAGS} --file docker/Dockerfile ."
             
