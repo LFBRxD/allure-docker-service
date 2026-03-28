@@ -1,8 +1,14 @@
 # Publicação multi-arquitetura (amd64 + arm64) no Docker Hub.
 #
 # Requisitos no GitHub (Settings → Secrets and variables → Actions):
-#   - Secret:  DOCKER_HUB_PASS   (token ou password do Docker Hub)
-#   - Variable: DOCKER_HUB_USER  (username do Docker Hub; ou ajuste o login abaixo)
+#   Utilizador (um dos seguintes — ordem de preferência):
+#     - Secret DOCKER_HUB_USERNAME  (recomendado), ou
+#     - Secret DOCKER_HUB_USER, ou
+#     - Variable DOCKER_HUB_USER  (aba "Variables", não "Secrets")
+#   Palavra-passe / token (um dos seguintes):
+#     - Secret DOCKER_HUB_TOKEN  (Access Token do Docker Hub — recomendado), ou
+#     - Secret DOCKER_HUB_PASS   (password da conta; menos recomendado)
+#   Criar token: hub.docker.com → Account Settings → Security → New Access Token
 #
 # Versões (não misturar):
 #   - Tag da imagem no Hub = release deste serviço/fork: tag Git vX.Y.Z → :X.Y.Z (ex.: v1.4.0 → flaviordesouza/...:1.4.0). É independente do npm allure.
@@ -28,6 +34,9 @@ on:
 env:
   DOCKER_IMAGE: flaviordesouza/allure-docker-service
   ALLURE_NPM_VERSION: 3.3.1
+  # Username: secrets primeiro (quem só criou "Secrets" não fica com vars vazias).
+  DOCKER_HUB_USER: ${{ secrets.DOCKER_HUB_USERNAME || secrets.DOCKER_HUB_USER || vars.DOCKER_HUB_USER }}
+  DOCKER_HUB_PASS: ${{ secrets.DOCKER_HUB_TOKEN || secrets.DOCKER_HUB_PASS }}
 
 jobs:
   build_release:
@@ -126,10 +135,16 @@ jobs:
 
       - name: DockerHub Login
         if: success() && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
-        env:
-          DOCKER_HUB_USER: ${{ vars.DOCKER_HUB_USER }}
-          DOCKER_HUB_PASS: ${{ secrets.DOCKER_HUB_PASS }}
         run: |
+          set -euo pipefail
+          if [[ -z "${DOCKER_HUB_USER}" ]]; then
+            echo '::error::DOCKER_HUB_USER vazio. Cria um Secret DOCKER_HUB_USERNAME (ou DOCKER_HUB_USER) ou uma Variable DOCKER_HUB_USER em Repo → Settings → Secrets and variables → Actions.'
+            exit 1
+          fi
+          if [[ -z "${DOCKER_HUB_PASS}" ]]; then
+            echo '::error::Token/password vazio. Cria DOCKER_HUB_TOKEN (recomendado) ou DOCKER_HUB_PASS em Secrets.'
+            exit 1
+          fi
           echo "${DOCKER_HUB_PASS}" | docker login -u "${DOCKER_HUB_USER}" --password-stdin
 
       - name: Docker Publishing (release tag)
@@ -166,10 +181,16 @@ jobs:
           fetch-depth: 0
 
       - name: DockerHub Login
-        env:
-          DOCKER_HUB_USER: ${{ vars.DOCKER_HUB_USER }}
-          DOCKER_HUB_PASS: ${{ secrets.DOCKER_HUB_PASS }}
         run: |
+          set -euo pipefail
+          if [[ -z "${DOCKER_HUB_USER}" ]]; then
+            echo '::error::DOCKER_HUB_USER vazio. Secret DOCKER_HUB_USERNAME ou DOCKER_HUB_USER, ou Variable DOCKER_HUB_USER.'
+            exit 1
+          fi
+          if [[ -z "${DOCKER_HUB_PASS}" ]]; then
+            echo '::error::Secret DOCKER_HUB_TOKEN ou DOCKER_HUB_PASS em falta.'
+            exit 1
+          fi
           echo "${DOCKER_HUB_PASS}" | docker login -u "${DOCKER_HUB_USER}" --password-stdin
 
       - name: Docker Publishing Manifest (release tag)
