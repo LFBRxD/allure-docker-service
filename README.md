@@ -32,6 +32,7 @@ Table of contents
       * [PORT 4040 Deprecated](#port-4040-deprecated)
       * [Known Issues](#known-issues)
       * [Opening & Refreshing Report](#opening--refreshing-report)
+         * [Report navigator](#report-navigator)
       * [New User Interface](#new-user-interface)
       * [Deploy using Kubernetes](#deploy-using-kubernetes)
       * [Extra options](#extra-options)
@@ -89,6 +90,7 @@ For that reason, this docker container allows you to see up to date reports simp
 
 - Useful for developers who wants to run tests locally and want to see what were the problems during regressions.
 - Useful for the team to check the tests status for every project.
+- **Report navigator:** one HTML page ([`GET /allure-docker-service/report-navigator`](#report-navigator)) to pick the project and open **latest** or **history** builds in iframes; switching builds **keeps the same in-report view** (hash / sub-path) when possible, plus optional static `reports/report-navigator.html` after each generation.
 
 ### Docker Hub
 - **Link público da imagem (uso):** [https://hub.docker.com/r/flaviordesouza/allure-docker-service](https://hub.docker.com/r/flaviordesouza/allure-docker-service) — **Allure Report 3** (npm `allure`), alinhado com este README.
@@ -372,6 +374,8 @@ You can use any [Action Endpoints](#action-endpoints), but don't forget to pass 
 
 'GET'      /latest-report`?project_id=my-project-id`
 
+'GET'      /report-navigator`?project_id=my-project-id`
+
 'POST'     /send-results`?project_id=my-project-id`
 
 'GET'      /generate-report`?project_id=my-project-id`
@@ -473,6 +477,36 @@ When you start the container for a single report, the `default` project will be 
 
 The `redirect=false` parameter is used to avoid be redirected to the `GET /projects/{id}` endpoint (default behaviour)
 
+#### Report navigator
+
+Use this when you want a **single HTML page** to browse **latest** and **historical** report folders (`reports/latest`, `reports/<build>`) without opening each URL manually. The page loads each report inside an **iframe** using the same URLs as `GET /projects/{id}/reports/{path}` (with `redirect=false` on `index.html`), which helps when Allure’s own history/trend links would otherwise 404 outside that context.
+
+| Item | Details |
+|------|---------|
+| **Endpoint** | `GET /allure-docker-service/report-navigator` (also `GET /report-navigator` at container root) |
+| **Query** | `project_id` — optional; defaults to `default` (same rule as other actions) |
+| **Example** | `http://localhost:5050/allure-docker-service/report-navigator` or `...?project_id=my-project-id` |
+| **Response** | `text/html` (not JSON) |
+| **Security** | Same as other report routes (`jwt_required` when [security is enabled](#enable-security)); with `SECURITY_ENABLED=0` no login is required |
+| **Switching builds** | The page tries to **preserve navigation inside the report** when you select another build: it copies the iframe’s **`#hash`** (typical for Allure Report 3 / SPA routes) and, for **classic** multi-file output (`allure generate`), the **path after** `reports/<build>/` when it is not only `index.html`. The new URL is the chosen build’s `index.html` plus that state. Works with a **same-origin** iframe (normal for this service). If the target build has no matching page, Allure may show an error—that is expected. |
+
+**Static file (optional):** after each successful report generation, `report-navigator.html` is written under `projects/<project_id>/reports/report-navigator.html` and can be opened directly, e.g. `http://localhost:5050/allure-docker-service/projects/default/reports/report-navigator.html`. Iframe targets use **relative** URLs inside that folder. If a link is resolved incorrectly from Allure’s `<base>` (e.g. `.../reports/latest/reports/report-navigator.html`), the API **redirects** to the canonical `.../reports/report-navigator.html`.
+
+**UI (browser only):** project selector (all project directories on disk), build list, **switching builds without jumping back to the report home** when the in-report route can be reapplied (see table row above), theme **light / dark / follow system** (stored in `localStorage`), **hamburger** menu for the build list on small screens, and **collapse sidebar** on wide screens to maximize iframe area (also persisted).
+
+**Screenshots** (examples; your projects/build counts will differ). Source files live in [`docs/images/`](docs/images/); replace the PNGs when the UI changes.
+
+![Report navigator — desktop, sidebar open](docs/images/readme-report-navigator-desktop-2026.png)
+
+*Wide layout: list of **Latest** + history builds, **Projeto** / **Tema** selectors, and the Allure report in the iframe.*
+
+![Report navigator — mobile, build drawer open](docs/images/readme-report-navigator-mobile-drawer-2026.png)
+
+*Narrow viewport (~390px): **Menu builds** opens the drawer over the report; tap outside or **Esc** to close.*
+
+![Report navigator — desktop, sidebar collapsed](docs/images/readme-report-navigator-sidebar-collapsed-2026.png)
+
+*Panel hidden for maximum iframe width; the **chevron** tab on the left restores the build list.*
 
 ![Allure Report 3 — overview (example)](docs/images/readme-report-overview-2026.png)
 
@@ -528,6 +562,8 @@ Available endpoints:
 `'GET'      /config`
 
 `'GET'      /latest-report`
+
+`'GET'      /report-navigator`
 
 `'POST'     /send-results` (admin role)
 
@@ -818,10 +854,9 @@ docker run --user="$(id -u):$(id -g)" -p 5050:5050 -e CHECK_RESULTS_EVERY_SECOND
            flaviordesouza/allure-docker-service
 ```
 
-Note: It's not a good practice to use `root` user to manipulate containers.
+By default this image runs the app as the non-root `allure` user (UID/GID from the image build). The `docker run --user=...` example above maps your host UID/GID so mounted volumes keep correct ownership — that is the **recommended** pattern for local mounts, not “wrong”. Avoid running the **process inside the container** as UID 0 (`root`) unless you have a specific reason.
 
-Reference: 
-- https://snyk.io/blog/10-docker-image-security-best-practices/
+Further reading: [Docker image security practices (Snyk)](https://snyk.io/blog/10-docker-image-security-best-practices/)
 
 #### Start in DEV Mode
 

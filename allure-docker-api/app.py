@@ -151,6 +151,8 @@ ORIGIN = 'api'
 SECURITY_SPECS_PATH = 'swagger/security_specs'
 
 REPORT_INDEX_FILE = 'index.html'
+REPORT_NAVIGATOR_TEMPLATE = 'report_navigator.html'
+REPORT_NAVIGATOR_FILE_NAME = 'report-navigator.html'
 DEFAULT_TEMPLATE = 'default.html'
 LANGUAGE_TEMPLATE = 'select_language.html'
 LANGUAGES = ["en", "ru", "zh", "de", "nl", "he", "br", "pl", "ja", "es", "kr", "fr", "az"]
@@ -884,6 +886,35 @@ def latest_report_endpoint():
         resp.status_code = 400
         return resp
 
+@app.route("/report-navigator", strict_slashes=False)
+@app.route("/allure-docker-service/report-navigator", strict_slashes=False)
+@jwt_required
+def report_navigator_endpoint():
+    """Página com sidebar + iframe para navegar entre latest e histórico de reports."""
+    try:
+        project_id = resolve_project(request.args.get('project_id'))
+        if is_existent_project(project_id) is False:
+            body = {
+                'meta_data': {
+                    'message' : "project_id '{}' not found".format(project_id)
+                }
+            }
+            resp = jsonify(body)
+            resp.status_code = 404
+            return resp
+
+        entries = build_report_navigator_entries(project_id, relative_urls=False)
+        return render_report_navigator_html(project_id, entries, relative_urls=False)
+    except Exception as ex:
+        body = {
+            'meta_data': {
+                'message' : str(ex)
+            }
+        }
+        resp = jsonify(body)
+        resp.status_code = 400
+        return resp
+
 @app.route("/send-results", methods=['POST'], strict_slashes=False)
 @app.route("/allure-docker-service/send-results", methods=['POST'], strict_slashes=False)
 @jwt_required
@@ -950,6 +981,7 @@ def send_results_endpoint(): #pylint: disable=too-many-branches
                 project_id, ORIGIN, 'Automatic Execution', '', ''
             ], stdout=subprocess.PIPE).communicate()[0]
             call([RENDER_EMAIL_REPORT_PROCESS, project_id, ORIGIN])
+            write_report_navigator_scaffold(project_id)
 
         if API_RESPONSE_LESS_VERBOSE != 1:
             files = os.listdir(results_project)
@@ -1042,6 +1074,7 @@ def generate_report_endpoint():
             project_id, ORIGIN, execution_name, execution_from, execution_type],
                                     stdout=subprocess.PIPE).communicate()[0]
         call([RENDER_EMAIL_REPORT_PROCESS, project_id, ORIGIN])
+        write_report_navigator_scaffold(project_id)
 
         build_order = 'latest'
         for line in response.decode("utf-8").split("\n"):
@@ -1474,32 +1507,14 @@ def get_project_endpoint(project_id):
             resp.status_code = 404
             return resp
 
-        project_reports_path = '{}/reports'.format(get_project_path(project_id))
-        reports_entity = []
-
-        for file in os.listdir(project_reports_path):
-            file_path = '{}/{}/index.html'.format(project_reports_path, file)
-            is_file = os.path.isfile(file_path)
-            if is_file is True:
-                report = url_for('get_reports_endpoint', project_id=project_id,
-                                 path='{}/index.html'.format(file), _external=True)
-                reports_entity.append([report, os.path.getmtime(file_path), file])
-
-        reports_entity.sort(key=lambda reports_entity: reports_entity[1], reverse=True)
+        ordered = list_project_report_dir_entries(project_id)
         reports = []
         reports_id = []
-        latest_report = None
-        for report_entity in reports_entity:
-            link = report_entity[0]
-            if report_entity[2].lower() != 'latest':
-                reports.append(link)
-                reports_id.append(report_entity[2])
-            else:
-                latest_report = link
-
-        if latest_report is not None:
-            reports.insert(0, latest_report)
-            reports_id.insert(0, 'latest')
+        for name in ordered:
+            report = url_for('get_reports_endpoint', project_id=project_id,
+                             path='{}/{}'.format(name, REPORT_INDEX_FILE), _external=True)
+            reports.append(report)
+            reports_id.append(name)
 
         body = {
             'data': {
@@ -1625,6 +1640,28 @@ def get_projects_search_endpoint():
         resp.status_code = 400
         return resp
 
+def _redirect_report_navigator_canonical(project_id, path):
+    """Redireciona URLs erradas (ex.: .../latest/reports/report-navigator.html) para reports/report-navigator.html.
+
+    O relatório em latest/ usa frequentemente <base>; um link relativo 'reports/...' resolve
+    para .../reports/latest/reports/... em vez de .../reports/...
+    """
+    if not path:
+        return None
+    escaped = re.escape(REPORT_NAVIGATOR_FILE_NAME)
+    if re.match(r'^(latest|\d+)/reports/%s$' % escaped, path, re.IGNORECASE):
+        return redirect(
+            url_for('get_reports_endpoint', project_id=project_id,
+                    path=REPORT_NAVIGATOR_FILE_NAME, redirect='false', _external=True),
+            code=302)
+    if re.match(r'^(latest|\d+)/%s$' % escaped, path, re.IGNORECASE):
+        return redirect(
+            url_for('get_reports_endpoint', project_id=project_id,
+                    path=REPORT_NAVIGATOR_FILE_NAME, redirect='false', _external=True),
+            code=302)
+    return None
+
+
 def _redirect_reports_dir_to_index(project_id, path):
     """Allure Report 3: index.html sets <base> from location; folder URLs without index.html break JS paths."""
     if path != 'latest' and not (path and re.match(r'^\d+$', path)):
@@ -1641,6 +1678,9 @@ def _redirect_reports_dir_to_index(project_id, path):
 @app.route("/allure-docker-service/projects/<project_id>/reports/<path:path>")
 @jwt_required
 def get_reports_endpoint(project_id, path):
+    redir = _redirect_report_navigator_canonical(project_id, path)
+    if redir is not None:
+        return redir
     redir = _redirect_reports_dir_to_index(project_id, path)
     if redir is not None:
         return redir
@@ -1791,6 +1831,98 @@ def get_projects_filtered_by_id(project_id, projects):
 
 def get_project_path(project_id):
     return '{}/{}'.format(PROJECTS_DIRECTORY, project_id)
+
+def list_project_report_dir_entries(project_id):
+    """Nomes de pastas em reports/ com index.html, ordem: latest primeiro, depois por mtime desc."""
+    project_reports_path = '{}/reports'.format(get_project_path(project_id))
+    if not os.path.isdir(project_reports_path):
+        return []
+    reports_entity = []
+    for name in os.listdir(project_reports_path):
+        file_path = os.path.join(project_reports_path, name, REPORT_INDEX_FILE)
+        if os.path.isfile(file_path):
+            reports_entity.append((name, os.path.getmtime(file_path)))
+    reports_entity.sort(key=lambda x: x[1], reverse=True)
+    rest = []
+    latest_name = None
+    for name, _mtime in reports_entity:
+        if name.lower() == 'latest':
+            latest_name = name
+        else:
+            rest.append(name)
+    if latest_name is not None:
+        return [latest_name] + rest
+    return [n for n, _ in reports_entity]
+
+def report_navigator_label(report_id):
+    if report_id.lower() == 'latest':
+        return 'Latest'
+    return 'Build {}'.format(report_id)
+
+def list_navigator_project_choices(current_project_id, relative_urls):
+    """Lista projetos com pasta em disco; href para o report-navigator de cada um."""
+    if not os.path.isdir(PROJECTS_DIRECTORY):
+        return []
+    names = [
+        n for n in os.listdir(PROJECTS_DIRECTORY)
+        if os.path.isdir(os.path.join(PROJECTS_DIRECTORY, n))
+    ]
+    names.sort(key=lambda x: (x != 'default', x.lower()))
+    out = []
+    for pid in names:
+        if relative_urls:
+            href = '../../{}/reports/{}'.format(pid, REPORT_NAVIGATOR_FILE_NAME)
+        else:
+            href = url_for(
+                'report_navigator_endpoint', project_id=pid, _external=True)
+        out.append({
+            'id': pid,
+            'href': href,
+            'current': pid == current_project_id,
+        })
+    return out
+
+def build_report_navigator_entries(project_id, relative_urls):
+    """Entradas para o template: iframe_src absoluto (API) ou relativo a reports/ (ficheiro estático)."""
+    entries = []
+    for name in list_project_report_dir_entries(project_id):
+        rel = '{}/{}'.format(name, REPORT_INDEX_FILE)
+        if relative_urls:
+            iframe_src = rel
+        else:
+            iframe_src = url_for(
+                'get_reports_endpoint', project_id=project_id,
+                path=rel, redirect='false', _external=True)
+        entries.append({
+            'report_id': name,
+            'label': report_navigator_label(name),
+            'iframe_src': iframe_src,
+        })
+    return entries
+
+def render_report_navigator_html(project_id, entries, relative_urls):
+    project_choices = list_navigator_project_choices(project_id, relative_urls)
+    return render_template(
+        REPORT_NAVIGATOR_TEMPLATE,
+        project_id=project_id,
+        entries=entries,
+        project_choices=project_choices,
+        css=GLOBAL_CSS,
+    )
+
+def write_report_navigator_scaffold(project_id):
+    """Gera static/projects/<id>/reports/report-navigator.html (URLs relativas para iframe)."""
+    try:
+        if is_existent_project(project_id) is False:
+            return
+        entries = build_report_navigator_entries(project_id, relative_urls=True)
+        html = render_report_navigator_html(project_id, entries, relative_urls=True)
+        out_path = os.path.join(
+            get_project_path(project_id), 'reports', REPORT_NAVIGATOR_FILE_NAME)
+        with open(out_path, 'w', encoding='utf-8') as file:
+            file.write(html)
+    except Exception as ex:
+        LOGGER.warning('write_report_navigator_scaffold: %s', str(ex))
 
 def directory_size_bytes(path):
     """Soma o tamanho em bytes de todos os ficheiros sob `path` (recursivo)."""

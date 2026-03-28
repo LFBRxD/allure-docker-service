@@ -140,6 +140,38 @@
             }
          }
       },
+      "/report-navigator":{
+         "get":{
+            "tags":[
+               "Action"
+            ],
+            "summary":"Página HTML com sidebar e iframe para navegar entre latest e histórico de reports",
+            "description":"A UI do browser preserva, ao mudar de build, o fragmento (#hash) da rota do Allure e, em relatórios classic multi-ficheiro, o caminho após reports/<build>/ quando aplicável (iframe same-origin).",
+            "parameters":[
+               {
+                  "in":"query",
+                  "name":"project_id",
+                  "schema":{
+                     "type":"string"
+                  }
+               }
+            ],
+            "responses":{
+               "200":{
+                  "description":"OK (text/html)",
+                  "schema":{
+                     "$ref":"#/components/schemas/response"
+                  }
+               },
+               "404":{
+                  "description":"NOT_FOUND",
+                  "schema":{
+                     "$ref":"#/components/schemas/response"
+                  }
+               }
+            }
+         }
+      },
       "/send-results":{
          "post":{
             "tags":[

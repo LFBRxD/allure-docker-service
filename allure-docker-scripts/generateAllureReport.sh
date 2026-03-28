@@ -107,3 +107,7 @@ if [ "$KEEP_HISTORY" == "TRUE" ] || [ "$KEEP_HISTORY" == "true" ] || [ "$KEEP_HI
 fi
 
 $ROOT/keepAllureLatestHistory.sh $PROJECT_ID
+
+if [ -f "$ROOT/allure-docker-api/write_report_navigator.py" ]; then
+    python3 "$ROOT/allure-docker-api/write_report_navigator.py" "$PROJECT_ID" || true
+fi
