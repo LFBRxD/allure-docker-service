@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 ARG PYTHON_VERSION=3.13
 ARG BUILD_DATE
 ARG BUILD_VERSION
@@ -20,6 +21,24 @@ RUN mkdir -p $ROOT_DIR
 WORKDIR $ROOT_DIR
 COPY allure-docker-api $ROOT_DIR/allure-docker-api
 RUN pylint --rcfile=allure-docker-api/.pylintrc allure-docker-api
+
+######
+# Allure CLI: Node oficial (Bookworm) — evita o pacote debian `nodejs`/`npm` com CVEs antigos no Scout.
+# `npm audit fix` no pacote `allure` aplica correções semver sem --force (pode falhar silenciosamente).
+FROM node:22-bookworm-slim AS allure_cli
+ARG ALLURE_NPM_VERSION=3.3.1
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g allure@${ALLURE_NPM_VERSION} \
+    && ALLURE_PKG="$(npm root -g)/allure" \
+    && if [ -f "$ALLURE_PKG/package.json" ]; then (cd "$ALLURE_PKG" && npm audit fix --omit=dev 2>/dev/null || true); fi \
+    && npm cache clean --force
+# Só binários reais; não copiar o shim `allure` (symlink → ../lib/node_modules/allure/cli.js),
+# senão o `import "./dist/index.js"` resolve para /usr/local/bin/dist e falha.
+RUN mkdir -p /export/bin /export/lib \
+    && cp -a /usr/local/lib/node_modules /export/lib/ \
+    && cp -a /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx /export/bin/ \
+    && allure --version
 
 ######
 FROM python:${PYTHON_VERSION}-slim-bookworm
@@ -50,19 +69,27 @@ LABEL org.label-schema.build-date=${BUILD_DATE} \
     org.opencontainers.image.url="https://github.com/LFBRxD/allure-docker-service" \
     org.opencontainers.image.documentation="https://github.com/LFBRxD/allure-docker-service#readme" \
     org.opencontainers.image.vendor="Flavio Ramos (fork maintainer)" \
-    org.opencontainers.image.licenses="Apache-2.0"
+    org.opencontainers.image.licenses="Apache-2.0" \
+    org.opencontainers.image.description="Allure Report 3 (npm allure): REST API, Swagger, multi-project, report history, report navigator (iframe), emailable HTML reports." \
+    org.opencontainers.image.version="${BUILD_VERSION}" \
+    org.opencontainers.image.created="${BUILD_DATE}" \
+    org.opencontainers.image.revision="${BUILD_REF}" \
+    allure.npm.version="${ALLURE_NPM_VERSION}"
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
       ca-certificates \
       curl \
       procps \
       tzdata \
-      nodejs \
-      npm \
-    && rm -rf /var/lib/apt/lists/* \
-    && npm install -g allure@${ALLURE_NPM_VERSION} \
-    && npm cache clean --force \
-    && groupadd -g ${GID} allure \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=allure_cli /export/lib/node_modules /usr/local/lib/node_modules
+COPY --from=allure_cli /export/bin/node /export/bin/npm /export/bin/npx /usr/local/bin/
+RUN ln -sf ../lib/node_modules/allure/cli.js /usr/local/bin/allure \
+    && allure --version
+
+RUN groupadd -g ${GID} allure \
     && useradd -u ${UID} -g allure -m -s /bin/sh allure \
     && mkdir -p /home/allure \
     && chown -R ${UID}:${GID} /home/allure

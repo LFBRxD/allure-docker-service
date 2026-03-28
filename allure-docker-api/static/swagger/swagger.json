@@ -12,6 +12,10 @@
       "license":{
          "name":"Apache-2.0",
          "url":"https://www.apache.org/licenses/LICENSE-2.0"
+      },
+      "externalDocs":{
+         "description":"Report navigator (HTML)",
+         "url":"/allure-docker-service/report-navigator"
       }
    },
    "servers":[
@@ -127,38 +131,6 @@
             "responses":{
                "200":{
                   "description":"OK",
-                  "schema":{
-                     "$ref":"#/components/schemas/response"
-                  }
-               },
-               "404":{
-                  "description":"NOT_FOUND",
-                  "schema":{
-                     "$ref":"#/components/schemas/response"
-                  }
-               }
-            }
-         }
-      },
-      "/report-navigator":{
-         "get":{
-            "tags":[
-               "Action"
-            ],
-            "summary":"Página HTML com sidebar e iframe para navegar entre latest e histórico de reports",
-            "description":"A UI do browser preserva, ao mudar de build, o fragmento (#hash) da rota do Allure e, em relatórios classic multi-ficheiro, o caminho após reports/<build>/ quando aplicável (iframe same-origin).",
-            "parameters":[
-               {
-                  "in":"query",
-                  "name":"project_id",
-                  "schema":{
-                     "type":"string"
-                  }
-               }
-            ],
-            "responses":{
-               "200":{
-                  "description":"OK (text/html)",
                   "schema":{
                      "$ref":"#/components/schemas/response"
                   }

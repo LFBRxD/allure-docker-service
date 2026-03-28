@@ -96,29 +96,38 @@ For that reason, this docker container allows you to see up to date reports simp
 - **Link público da imagem (uso):** [https://hub.docker.com/r/flaviordesouza/allure-docker-service](https://hub.docker.com/r/flaviordesouza/allure-docker-service) — **Allure Report 3** (npm `allure`), alinhado com este README.
 - **Imagem Docker Hub de Frank Escobar:** [frankescobar/allure-docker-service](https://hub.docker.com/r/frankescobar/allure-docker-service) — corresponde ao fluxo **Allure Report 2** (stack antiga). **Não** é Allure 3; não a uses como substituto da imagem v3 deste fork.
 
+**Ajustar o que aparece no Docker Hub (duas camadas):**
+
+1. **Página do repositório** (texto para humanos) — em [hub.docker.com](https://hub.docker.com/) → teu repositório → **Settings** / **General**: *Description* (curta). Em **Repositories** → **flaviordesouza/allure-docker-service** → **Edit** (ou *Manage repository*): secção **Overview** em Markdown (instalação, portas, link do GitHub). Opcional: **Linked GitHub** / **Automated builds** ou copiar manualmente trechos deste README quando publicares uma versão.
+2. **Metadados dentro da imagem** (labels OCI / label-schema) — definidos no [`docker/Dockerfile`](docker/Dockerfile); preenchidos na build com `--build-arg BUILD_DATE=…`, `BUILD_VERSION=…`, `BUILD_REF=…` (o [CI](.github/workflows/docker-publish.yml) já passa estes args em release). Consulta local: `docker inspect flaviordesouza/allure-docker-service:TAG --format '{{json .Config.Labels}}' | jq`.
+
+**Overview para colar no Docker Hub:** texto Markdown pronto em [`docs/DOCKER_HUB_OVERVIEW.md`](docs/DOCKER_HUB_OVERVIEW.md) (Repository → *Edit* → secção **Overview**).
+
 ### Docker Versions
 The image bundles [Allure Report 3](https://allurereport.org/docs/) via the official npm package `allure` (build arg `ALLURE_NPM_VERSION`, default `3.3.1`).
 
+**Dois números diferentes:** (1) **Tag da imagem no registry** — versão de **release deste fork** (definida pela tag Git `vX.Y.Z` no CI, ou `main` / `sha-…` em pushes na `main`). Não tem de coincidir com o Allure. (2) **Versão do Allure CLI** na imagem — vem de `ALLURE_NPM_VERSION`; consulta `GET /version` e a label `allure.npm.version` em `docker inspect`.
+
 #### Image Variants
-Allure Docker Service supports architectures amd64, arm32v7 and arm64v8.
+CI publishes **linux/amd64** and **linux/arm64** (no armv7: the Allure CLI layer uses official `node:22-bookworm-slim`, which does not ship armv7).
 
 - Tags (fork): https://hub.docker.com/r/flaviordesouza/allure-docker-service/tags
+- **Branch `main`:** cada push bem-sucedido publica release automática **`1.0.<N>`** (`N` = número de commits até o commit do push, via `git rev-list --count`), atualiza **`latest`** para esse build e mantém manifests **`main`** e **`sha-<8 hex>`**. Não precisas criar tag Git. Tags **`v*`** continuam opcionais para releases semver “manuais”.
 
 The following table shows the variation of provided images.
 
 |**Base Image**                              |**Arch** | **OS** |
 |--------------------------------------------|---------|--------|
-| python:3.13-slim-bookworm + Debian nodejs  | amd64   | debian |
-| python:3.13-slim-bookworm + Debian nodejs  | armv7   | debian |
-| python:3.13-slim-bookworm + Debian nodejs  | arm64   | debian |
+| python:3.13-slim-bookworm + Node 22 (npm `allure`) | amd64   | debian |
+| python:3.13-slim-bookworm + Node 22 (npm `allure`) | arm64   | debian |
 
 The following table shows the provided Manifest Lists.
 
 | **Tag**                                | **allure-docker-service per-arch tags (example)** |
 |----------------------------------------|---------------------------------------------------|
-| latest, 3.3.1                          | flaviordesouza/allure-docker-service:3.3.1-amd64   |
-|                                        | flaviordesouza/allure-docker-service:3.3.1-armv7   |
-|                                        | flaviordesouza/allure-docker-service:3.3.1-arm64   |
+| latest, 1.4.0 (ex.: git tag `v1.4.0`)  | flaviordesouza/allure-docker-service:1.4.0-amd64   |
+|                                        | flaviordesouza/allure-docker-service:1.4.0-arm64   |
+| main, sha-abc12345                     | flaviordesouza/allure-docker-service:main-amd64, …-arm64 (and matching `sha-*-arch`) |
 
 ## USAGE
 ### Generate Allure Results
@@ -439,6 +448,7 @@ Check the new commands to start the container for a single project or for multip
 
 ### Known Issues
 - `Permission denied` --> https://github.com/fescobar/allure-docker-service/issues/108
+- **Docker Scout / CVEs:** the image uses a **multi-stage build** with **official `node:22-bookworm-slim`** for `npm install -g allure` (no Debian `nodejs`/`npm` packages in the final image), **`apt-get upgrade`** on the Python stage, and a best-effort **`npm audit fix --omit=dev`** inside the global `allure` package during build. That removes a large class of **deb/nodejs** noise and applies fixes npm can resolve within semver. **It does not guarantee zero CVEs:** the Allure CLI still ships a large transitive tree; remaining issues depend on **new `allure` releases on npm** (`ALLURE_NPM_VERSION`) and upstream. Rebuild periodically and re-scan.
 
 ### Opening & Refreshing Report
 If everything was OK, you will see this:
@@ -710,7 +720,7 @@ Pin the image tag or registry in Compose when you need a fixed version. The **fr
 Docker Compose example (custom registry/repository):
 ```sh
   allure:
-    image: "${ALLURE_DOCKER_IMAGE:-flaviordesouza/allure-docker-service}:3.3.1"
+    image: "${ALLURE_DOCKER_IMAGE:-flaviordesouza/allure-docker-service}:1.4.0"
 ```
 
 Or using latest:
@@ -1295,8 +1305,14 @@ docker-compose -f docker-compose-dev.yml up --build
 ```
 ### Build image
 ```sh
-docker build --no-cache -t allure-release -f docker/Dockerfile --build-arg ALLURE_NPM_VERSION=3.3.1 .
+docker build --no-cache -t allure-release -f docker/Dockerfile \
+  --build-arg ALLURE_NPM_VERSION=3.3.1 \
+  --build-arg BUILD_VERSION=1.4.0 \
+  --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --build-arg BUILD_REF="$(git rev-parse --short HEAD 2>/dev/null || echo local)" \
+  .
 ```
+*(Sem `BUILD_*`, algumas labels ficam vazias; o CI de release define-as automaticamente.)*
 ### Run container
 ```sh
 docker run -d  -p 5050:5050 allure-release
@@ -1339,6 +1355,6 @@ docker run -d -p 5050:5050 flaviordesouza/allure-docker-service
 ```
 ### Run with pre-built image (tagged version — example)
 ```sh
-docker run -d -p 5050:5050 flaviordesouza/allure-docker-service:3.3.1
+docker run -d -p 5050:5050 flaviordesouza/allure-docker-service:1.4.0
 ```
 *(Use `flaviordesouza/allure-docker-service` for Allure Report 3; `frankescobar/allure-docker-service` on Docker Hub is the legacy Allure 2 line.)*
