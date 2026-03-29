@@ -10,16 +10,19 @@ EXECUTION_FROM=$5
 EXECUTION_TYPE=$6
 
 PROJECT_REPORTS=$STATIC_CONTENT_PROJECTS/$PROJECT_ID/reports
-if [ "$(ls $PROJECT_REPORTS | wc -l)" != "0" ]; then
-    if [ -e "$PROJECT_REPORTS/latest" ]; then
-        LAST_REPORT_PATH_DIRECTORY=$(ls -td $PROJECT_REPORTS/* | grep -wv $PROJECT_REPORTS/latest | grep -v $EMAILABLE_REPORT_FILE_NAME | head -1)
-    else
-        LAST_REPORT_PATH_DIRECTORY=$(ls -td $PROJECT_REPORTS/* | grep -v $EMAILABLE_REPORT_FILE_NAME | head -1)
-    fi
+# Só pastas com nome numérico são builds de histórico. Ignorar latest, report-navigator.html,
+# emailable-report-*.html etc. — caso contrário o mais recente por mtime pode ser um .html e
+# quebra BUILD_ORDER=$(($LAST_REPORT_DIRECTORY + 1)).
+LAST_REPORT_DIRECTORY=""
+if [ -d "$PROJECT_REPORTS" ]; then
+    LAST_REPORT_DIRECTORY=$(ls -1 "$PROJECT_REPORTS" 2>/dev/null | grep -E '^[0-9]+$' | sort -n | tail -1)
 fi
 
-LAST_REPORT_DIRECTORY=$(basename -- "$LAST_REPORT_PATH_DIRECTORY")
-#echo "LAST REPORT DIRECTORY >> $LAST_REPORT_DIRECTORY"
+if [[ -z "$LAST_REPORT_DIRECTORY" ]]; then
+    BUILD_ORDER=1
+else
+    BUILD_ORDER=$(($LAST_REPORT_DIRECTORY + 1))
+fi
 
 RESULTS_DIRECTORY=$STATIC_CONTENT_PROJECTS/$PROJECT_ID/results
 PROJECT_ROOT=$STATIC_CONTENT_PROJECTS/$PROJECT_ID
@@ -33,9 +36,7 @@ fi
 EXECUTOR_PATH=$RESULTS_DIRECTORY/$EXECUTOR_FILENAME
 
 echo "Creating $EXECUTOR_FILENAME for PROJECT_ID: $PROJECT_ID"
-if [[ "$LAST_REPORT_DIRECTORY" != "latest" ]]; then
-    BUILD_ORDER=$(($LAST_REPORT_DIRECTORY + 1))
-
+if [[ "$EXEC_STORE_RESULTS_PROCESS" == "1" ]]; then
     if [ -z "$EXECUTION_NAME" ]; then
         EXECUTION_NAME='Automatic Execution'
     fi
@@ -56,13 +57,9 @@ EXECUTOR_JSON=$(cat <<EOF
 }
 EOF
 )
-    if [[ "$EXEC_STORE_RESULTS_PROCESS" == "1" ]]; then
-        echo $EXECUTOR_JSON > $EXECUTOR_PATH
-    else
-        # Allure 3 parses every *.json under results; an empty file breaks generate.
-        rm -f "$EXECUTOR_PATH"
-    fi
+    echo $EXECUTOR_JSON > $EXECUTOR_PATH
 else
+    # Allure 3 parses every *.json under results; an empty file breaks generate.
     rm -f "$EXECUTOR_PATH"
 fi
 

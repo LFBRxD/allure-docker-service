@@ -1202,8 +1202,54 @@ def clean_results_endpoint():
 
     return resp
 
+def load_emailable_test_cases_from_result_files(project_path):
+    """Monta linhas do emailable a partir de *-result.json em results/ (Allure 2/3).
+
+    No Allure 3 Awesome, summary.json costuma trazer newTests vazio quando não há
+    testes “novos” frente ao histórico — o relatório HTML ainda lista tudo; o emailable
+    ficaria vazio sem este fallback.
+    """
+    results_dir = '{}/results'.format(project_path)
+    if not os.path.isdir(results_dir):
+        return []
+    pattern = os.path.join(results_dir, '*-result.json')
+    paths = glob.glob(pattern)
+    paths.sort(key=os.path.getmtime)
+    test_cases = []
+    for file_path in paths:
+        try:
+            with open(file_path, encoding='utf-8') as handle:
+                data = json.load(handle)
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        name = data.get('name') or data.get('fullName') or ''
+        status = (data.get('status') or 'unknown').lower()
+        if status not in ("passed", "failed", "broken", "skipped", "unknown"):
+            status = "unknown"
+        start = data.get('start')
+        stop = data.get('stop')
+        duration = 0
+        if isinstance(start, (int, float)) and isinstance(stop, (int, float)):
+            duration = max(0, int(stop - start))
+        details = data.get('statusDetails')
+        description = ''
+        if isinstance(details, dict):
+            description = details.get('message') or ''
+        test_cases.append({
+            "name": name,
+            "status": status,
+            "hidden": False,
+            "description": description,
+            "labels": data.get('labels') if isinstance(data.get('labels'), list) else [],
+            "time": {"duration": duration},
+        })
+    return test_cases
+
+
 def load_emailable_test_cases(project_path):
-    """Load test cases for emailable HTML: classic `allure generate` (data/test-cases) or Awesome single-file (summary.json)."""
+    """Load test cases for emailable HTML: classic generate, raw results, ou summary Awesome."""
     tcs_glob = "{}/reports/latest/data/test-cases/*.json".format(project_path)
     files = glob.glob(tcs_glob)
     files.sort(key=os.path.getmtime, reverse=True)
@@ -1215,6 +1261,11 @@ def load_emailable_test_cases(project_path):
                 test_cases.append(test_case)
     if test_cases:
         return test_cases
+
+    test_cases = load_emailable_test_cases_from_result_files(project_path)
+    if test_cases:
+        return test_cases
+
     summary_path = "{}/reports/latest/summary.json".format(project_path)
     if not os.path.isfile(summary_path):
         return []
